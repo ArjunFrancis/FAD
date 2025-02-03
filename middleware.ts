@@ -1,73 +1,31 @@
+// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
 
 export const config = {
-  matcher: [
-    /*
-     * Match all paths except for:
-     * 1. /api routes
-     * 2. /_next (Next.js internals)
-     * 3. /_static (inside /public)
-     * 4. all root files inside /public (e.g. /favicon.ico)
-     */
-    "/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)",
-  ],
+  // Apply middleware to ALL routes except API/static files
+  matcher: ["/((?!api/|_next/|_vercel|[\\w-]+\\.\\w+).*)"],
 };
 
 export default async function middleware(req: NextRequest) {
   const url = req.nextUrl;
+  const host = req.headers.get("host");
 
-  // Get hostname of request (e.g. demo.vercel.pub, demo.localhost:3000)
-  let hostname = req.headers
-    .get("host")!
-    .replace(".localhost:3000", `.${process.env.NEXT_PUBLIC_ROOT_DOMAIN}`);
+  // 1. Define your AI content subdomains
+  const subdomains = {
+    prompts: "/prompts",
+    news: "/news",
+    tools: "/tools",
+  };
 
-  // special case for Vercel preview deployment URLs
-  if (
-    hostname.includes("---") &&
-    hostname.endsWith(`.${process.env.NEXT_PUBLIC_VERCEL_DEPLOYMENT_SUFFIX}`)
-  ) {
-    hostname = `${hostname.split("---")[0]}.${
-      process.env.NEXT_PUBLIC_ROOT_DOMAIN
-    }`;
+  // 2. Extract subdomain (e.g. "prompts" from prompts.futureaidirectory.com)
+  const subdomain = host?.split(".")[0];
+
+  // 3. Redirect subdomains to your AI content sections
+  if (subdomain && subdomains[subdomain as keyof typeof subdomains]) {
+    const path = `${subdomains[subdomain as keyof typeof subdomains]}${url.pathname}`;
+    return NextResponse.rewrite(new URL(path, req.url));
   }
 
-  const searchParams = req.nextUrl.searchParams.toString();
-  // Get the pathname of the request (e.g. /, /about, /blog/first-post)
-  const path = `${url.pathname}${
-    searchParams.length > 0 ? `?${searchParams}` : ""
-  }`;
-
-  // rewrites for app pages
-  if (hostname == `app.${process.env.NEXT_PUBLIC_ROOT_DOMAIN}`) {
-    const session = await getToken({ req });
-    if (!session && path !== "/login") {
-      return NextResponse.redirect(new URL("/login", req.url));
-    } else if (session && path == "/login") {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-    return NextResponse.rewrite(
-      new URL(`/app${path === "/" ? "" : path}`, req.url),
-    );
-  }
-
-  // special case for `vercel.pub` domain
-  if (hostname === "vercel.pub") {
-    return NextResponse.redirect(
-      "https://vercel.com/blog/platforms-starter-kit",
-    );
-  }
-
-  // rewrite root application to `/home` folder
-  if (
-    hostname === "localhost:3000" ||
-    hostname === process.env.NEXT_PUBLIC_ROOT_DOMAIN
-  ) {
-    return NextResponse.rewrite(
-      new URL(`/home${path === "/" ? "" : path}`, req.url),
-    );
-  }
-
-  // rewrite everything else to `/[domain]/[slug] dynamic route
-  return NextResponse.rewrite(new URL(`/${hostname}${path}`, req.url));
+  // 4. Default route (futureaidirectory.com)
+  return NextResponse.next();
 }
